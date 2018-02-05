@@ -1,0 +1,8 @@
+.idea/
+__pycache__/
+MNIST_data/
+TensorBoard_logs/
+TensorBoard_logs_Archive/
+data/
+Autoencoder_theano.py
+gpl570_pca.m
