@@ -1,21 +1,16 @@
 
 import tensorflow as tf
 import numpy
-import random
-from tensorflow.examples.tutorials.mnist import input_data
 
 
 class AutoEncoder:
 
-    mnist_dataset = input_data.read_data_sets("MNIST_data", one_hot=True)
-        # One-hot=True means that the output of array will have only one 1 value, and the rest will be 0. (Only one active neuron in the output layer)
-
-    def __init__(self, layers):
+    def __init__(self, layers, dataset):
         """
-        Creates an AutoEncoder with the given layers which uses the Adadelta optimizer. Samples of this encoder are assumed to be in range [0, 1]
+        Creates an AutoEncoder with the given layers which uses the Adadelta optimizer.
         :param layers: A list which contains the number of neurons of each layer. This list is assumed to be symmetrical and with odd size
         """
-        if(len(layers)%2 == 0): # Checking if list size is odd
+        if len(layers)%2 == 0: # Checking if list size is odd
             raise ValueError('Number of layers must be an odd number')
 
         first_half = layers[0: (int)(len(layers)/2)]
@@ -23,6 +18,7 @@ class AutoEncoder:
         if(first_half[::-1] != second_half):    # Split the list into 2 sublists and compare them. Ignore the middle element.
             raise ValueError('List not symmetrical')
 
+        self._dataset = dataset
         self._writer = None
         self._layers = layers
         self._d_x = layers[0]
@@ -131,27 +127,27 @@ class AutoEncoder:
 
     def train(self, total_epochs, batch_size):
         """
-        Trains the weights and the biases of the Neural Network using the MNIST dataset
+        Trains the weights and the biases of the Neural Network
         :param total_epochs: The epochs that the NN should run. Must be >0
-        :param batch_size: The size of each batch. Must be >0 and must have 0 modulo with 55000
+        :param batch_size: The size of each batch. Must be >0
         :return void
         """
         print('Initializing Training of NN...')
-        if( (total_epochs<=0) or (batch_size <=0) or (AutoEncoder.training_samples() % batch_size != 0)):
-            raise ValueError('Total epochs and batch size must be >0. batch_size must be integer multipler of ' + str(AutoEncoder.training_samples()))
+        if total_epochs<=0 or batch_size <=0:
+            raise ValueError('Total epochs and batch size must be >0.')
 
         if(self._writer is None):
             self._writer = tf.summary.FileWriter('TensorBoard_logs/' + str(self._layers).replace(', ', '-') + '_epochs=' + str(total_epochs) + '_batchSize=' + str(batch_size))
             self._writer.add_graph(graph=self._sess.graph)  # Adds a visualization graph for displaying the Computation Graph
 
-        total_batches = (int)(AutoEncoder.training_samples()/batch_size)
+        total_batches = (int)(self.training_samples()/batch_size)
         print('Total Batches per epoch are: ', total_batches)
 
         for cur_epoch in range(0, total_epochs):
             batch_cost_list = []    # List which holds the cost (scalar value) for each batch for one epoch.
             for cur_batch in range(total_batches):
-                batch_x, _ = AutoEncoder.mnist_dataset.train.next_batch(batch_size)
-                batch_x = numpy.transpose(batch_x)  #result is [d_x, batch_size]
+                batch_x = self._dataset.next_batch(batch_size)
+                batch_x = numpy.transpose(batch_x)  # result is [d_x, batch_size]
                 c, _ = self._sess.run([self._cost, self._minimize_op], feed_dict={self._nn_inp_holder: batch_x})
                 batch_cost_list.append(c)
 
@@ -162,18 +158,9 @@ class AutoEncoder:
 
             # Defining which epochs should be recorded so that we do not have an overflow of metric data
             if( (total_epochs < 100) or (cur_epoch % 10 == 0)):
-                # Define image summaries for 4 random samples. (Must be done per iteration, since this summary has a buggy implementation)
-                input_img_summary = tf.summary.image('input_images_' + str(cur_epoch), tf.reshape(tf.transpose(self._nn_inp_holder), [-1, 28, 28, 1]), max_outputs=4)  # Get 4 images per epoch as a sample
-                output_img_summary = tf.summary.image('output_images_' + str(cur_epoch), tf.reshape(tf.transpose(self._y_hat), [-1, 28, 28, 1]), max_outputs=4)  # Get 4 images per epoch as a sample
-                img_summaries = tf.summary.merge([input_img_summary, output_img_summary])
-                random_index = random.randrange(0, AutoEncoder.training_samples())
-                random_inp_slice = numpy.transpose(AutoEncoder.mnist_dataset.train.images)[:, random_index:random_index+4+1]   #Taking the columns random_index up to random_index+4
-
-                # Evaluate the img_summaries and the summaries_per_epoch. Write them afterwards.
-                epoch_summ, img_summaries = self._sess.run([self._summaries_per_epoch, img_summaries],
-                                                           feed_dict={self._nn_inp_holder: random_inp_slice, self._batches_cost_holder: batch_cost_list})
+                # Evaluate the summaries_per_epoch. Write them afterwards.
+                epoch_summ = self._sess.run(self._summaries_per_epoch, feed_dict={self._batches_cost_holder: batch_cost_list})
                 self._writer.add_summary(epoch_summ, cur_epoch+1)
-                self._writer.add_summary(img_summaries, cur_epoch+1)
                 self._writer.flush()
             print('Current Epoch: ', (cur_epoch + 1), ' completed.')
 
@@ -182,32 +169,14 @@ class AutoEncoder:
 
     def test(self):
         """
-        Uses the test dataset from the MNIST for testing. Note that train() must have been called beforehand, otherwise
+        Uses the test dataset. Note that train() must have been called beforehand, otherwise
         the behaviour is undefined.
         :return: The cost of the dataset
         """
         print('Initializing Testing of NN...')
 
         # Define image summaries for 10 random sample images, each being from a different class.
-        test_images = numpy.transpose(AutoEncoder.mnist_dataset.test.images)
-        test_labels = numpy.transpose(AutoEncoder.mnist_dataset.test.labels)
-        sample_images = numpy.empty(shape=(self._d_x,0), dtype=float)
-        sample_labels = [0] * AutoEncoder.num_of_classes()
-        i = random.randint(0, AutoEncoder.test_samples()-1) #random index to start the slice.
-        samples_taken = 0
-        while(samples_taken < AutoEncoder.num_of_classes()):    #Take 10 different samples. Start searching from index i.
-            cur_img = numpy.argmax(test_labels[:, i])   #value in range [0, 9]
-            if(sample_labels[cur_img] == 0):    #Sample has not been taken.
-                sample_images = numpy.concatenate((sample_images, numpy.reshape(test_images[:, i], (-1, 1))), axis=1)
-                sample_labels[cur_img] = 1
-                samples_taken += 1
-            i = (i+1) % AutoEncoder.test_samples()
-
-        input_img_summary = tf.summary.image('test_input_images', tf.reshape(tf.transpose(self._nn_inp_holder), [-1, 28, 28, 1]), max_outputs=10)
-        output_img_summary = tf.summary.image('test_output_images', tf.reshape(tf.transpose(self._y_hat), [-1, 28, 28, 1]), max_outputs=10)
-        img_summaries = tf.summary.merge([input_img_summary, output_img_summary])
-        img_summaries = self._sess.run(img_summaries, feed_dict={self._nn_inp_holder: sample_images})
-        self._writer.add_summary(img_summaries)
+        test_images = numpy.transpose(self._dataset.test)
 
         # Calculating cost and the rest summaries
         c, test_summ = self._sess.run([self._cost, self._test_summaries], feed_dict={self._nn_inp_holder: test_images})
@@ -227,7 +196,7 @@ class AutoEncoder:
         :return: The output of this layer, which is relu((weight_matrix * input) + bias_matrix)
         """
         with tf.name_scope(op_name, values=[weight_matrix, bias_matrix, layer_input]):
-            output = tf.nn.relu(tf.add(tf.matmul(weight_matrix, layer_input), bias_matrix)) # Broadcasting is used for performing the add operation
+            output = tf.nn.sigmoid(tf.add(tf.matmul(weight_matrix, layer_input), bias_matrix)) # Broadcasting is used for performing the add operation
             tf.summary.histogram(op_name, output, collections=[self._summary_keys[0]])
             return output
 
@@ -256,26 +225,16 @@ class AutoEncoder:
             tf.summary.histogram(op_name, output, collections=[self._summary_keys[0]])
             return output
 
-    @classmethod
-    def training_samples(cls):
+    def training_samples(self):
         """
         Returns the number of training samples that are being used.
         :return: The number of training samples
         """
-        return 55000    #Defined by the MNIST dataset
+        return self._dataset.train.shape[0]
 
-    @classmethod
-    def test_samples(cls):
+    def test_samples(self):
         """
         Returns the number of test samples that are being used.
         :return: The number of test samples
         """
-        return 10000    #Defined by the MNIST dataset
-
-    @classmethod
-    def num_of_classes(cls):
-        """
-        Returns the number of classes for the MNIST dataset
-        :return: The number of classes
-        """
-        return 10    #Defined by the MNIST dataset
+        return self._dataset.test.shape[0]
