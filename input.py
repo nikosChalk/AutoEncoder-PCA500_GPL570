@@ -86,3 +86,24 @@ class DataSet:
 
         self._batch_idx = (self._batch_idx + batch_size) % len(self._train)
         return train_slice
+
+    def normalize(self):
+        """
+        Normalizes data of both the train and the test set in range [0, 1]
+        :return: -
+        """
+        # The normalization for each sample is done as:
+        # z = (x - min(x)) / (max(x) - min(x)) where x is the sample and z is the normalized sample
+        datasets = {'train':self._train, 'test':self._test}
+        samples_min = {}
+        samples_denominator = {}
+        for key, dataset in datasets.items():
+            min = numpy.amin(dataset, axis=1) # minimum value for each sample in the current dataset. [samples, 1]
+            max = numpy.amax(dataset, axis=1) # maximum value for each sample in the current dataset
+            samples_min[key] = min
+            samples_denominator[key] = numpy.subtract(max, min)
+
+        for key, dataset in datasets.items():
+            for i in range(0, dataset.shape[0]):
+                dataset[i, :] = numpy.divide(numpy.subtract(dataset[i, :], samples_min[key][i]), samples_denominator[key][i])
+        return

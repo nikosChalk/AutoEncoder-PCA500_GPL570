@@ -34,11 +34,15 @@ class AutoEncoder:
         # Making the Computational Graph
         # Define the initialization of the weights and the biases.
         for i in range(1, (int)(len(layers)/2)+1):
-            self._encoder_wmatrix.append(tf.Variable(tf.truncated_normal([layers[i], layers[i-1]], stddev=0.0499), name=('encoder_wmatrix_' + str(i-1)) ))
-            self._encoder_bmatrix.append(tf.Variable(tf.truncated_normal([layers[i], 1], stddev=0.0499), name=('encoder_bmatrix_' + str(i-1)) ))
+            #self._encoder_wmatrix.append(tf.Variable(tf.random_uniform([layers[i], layers[i-1]], minval=-1, maxval=1, dtype=tf.float32), name=('encoder_wmatrix_' + str(i-1)) ))
+            #self._encoder_bmatrix.append(tf.Variable(tf.random_uniform([layers[i], 1], minval=-1, maxval=1, dtype=tf.float32), name=('encoder_bmatrix_' + str(i-1)) ))
+            self._encoder_wmatrix.append(tf.Variable(tf.truncated_normal([layers[i], layers[i - 1]], stddev=0.0499), name=('encoder_wmatrix_' + str(i - 1))))
+            self._encoder_bmatrix.append(tf.Variable(tf.truncated_normal([layers[i], 1], stddev=0.0499), name=('encoder_bmatrix_' + str(i - 1))))
         for i in range((int)(len(layers)/2)+1, len(layers)):
-            self._decoder_wmatrix.append(tf.Variable(tf.truncated_normal([layers[i], layers[i-1]], stddev=0.0499), name=('decoder_wmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
-            self._decoder_bmatrix.append(tf.Variable(tf.truncated_normal([layers[i], 1], stddev=0.0499), name=('decoder_bmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
+            #self._decoder_wmatrix.append(tf.Variable(tf.random_uniform([layers[i], layers[i-1]], minval=-1, maxval=1, dtype=tf.float32), name=('decoder_wmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
+            #self._decoder_bmatrix.append(tf.Variable(tf.random_uniform([layers[i], 1], minval=-1, maxval=1, dtype=tf.float32), name=('decoder_bmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
+            self._decoder_wmatrix.append(tf.Variable(tf.truncated_normal([layers[i], layers[i - 1]], stddev=0.0499), name=('decoder_wmatrix_' + str(i - (int)(len(layers) / 2) - 1))))
+            self._decoder_bmatrix.append(tf.Variable(tf.truncated_normal([layers[i], 1], stddev=0.0499), name=('decoder_bmatrix_' + str(i - (int)(len(layers) / 2) - 1))))
 
         # Adding summaries for the weight and biases matrices
         for i in range (0, len(self._encoder_wmatrix)):
@@ -57,9 +61,19 @@ class AutoEncoder:
 
         # Defining NN's cost function
         with tf.name_scope('cost', values=[self._nn_inp_holder, self._y_hat]):
+            ''' 
+            # L2 norm cost function
             self._cost = tf.reduce_sum(tf.square(tf.sub(self._nn_inp_holder, self._y_hat)), axis=1)  # [d_x, 1]. Sum is over the samples
             self._cost = tf.mul(tf.constant(1/2, dtype=tf.float32), self._cost)
             self._cost = tf.reduce_mean(self._cost, axis=0) # Scalar Value. Sum is over the features
+            '''
+            # Cross entropy cost function
+            # cost = mean(-sum(x * log(output) + (1 - x) * log(1 - output), axis=1), axis=0)
+            one = tf.constant(1.0, dtype=tf.float32)
+            self._cost = tf.mul(self._nn_inp_holder, tf.log(self._y_hat))
+            self._cost = tf.add(self._cost, tf.mul(tf.sub(one, self._nn_inp_holder), tf.log(tf.sub(one, self._y_hat)))) # [d_x, z], where z can be anything.
+            self._cost = -tf.reduce_sum(self._cost, axis=1)  # [d_x, 1]. Sum is over the samples
+            self._cost = tf.reduce_mean(self._cost, axis=0)  # Scalar Value. Sum is over the features
         tf.summary.scalar('batch_cost', self._cost, collections=[self._summary_keys[0]])
         tf.summary.scalar('test_cost', self._cost, collections=[self._summary_keys[2]])
 
