@@ -34,13 +34,13 @@ class AutoEncoder:
         # Making the Computational Graph
         # Define the initialization of the weights and the biases.
         for i in range(1, (int)(len(layers)/2)+1):
-            #self._encoder_wmatrix.append(tf.Variable(tf.random_uniform([layers[i], layers[i-1]], minval=-1, maxval=1, dtype=tf.float32), name=('encoder_wmatrix_' + str(i-1)) ))
-            #self._encoder_bmatrix.append(tf.Variable(tf.random_uniform([layers[i], 1], minval=-1, maxval=1, dtype=tf.float32), name=('encoder_bmatrix_' + str(i-1)) ))
+            #self._encoder_wmatrix.append(tf.Variable(tf.random_uniform([layers[i], layers[i-1]], minval=-0.5, maxval=0.5, dtype=tf.float32), name=('encoder_wmatrix_' + str(i-1)) ))
+            #self._encoder_bmatrix.append(tf.Variable(tf.random_uniform([layers[i], 1], minval=-0.5, maxval=0.5, dtype=tf.float32), name=('encoder_bmatrix_' + str(i-1)) ))
             self._encoder_wmatrix.append(tf.Variable(tf.truncated_normal([layers[i], layers[i - 1]], stddev=0.0499), name=('encoder_wmatrix_' + str(i - 1))))
             self._encoder_bmatrix.append(tf.Variable(tf.truncated_normal([layers[i], 1], stddev=0.0499), name=('encoder_bmatrix_' + str(i - 1))))
         for i in range((int)(len(layers)/2)+1, len(layers)):
-            #self._decoder_wmatrix.append(tf.Variable(tf.random_uniform([layers[i], layers[i-1]], minval=-1, maxval=1, dtype=tf.float32), name=('decoder_wmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
-            #self._decoder_bmatrix.append(tf.Variable(tf.random_uniform([layers[i], 1], minval=-1, maxval=1, dtype=tf.float32), name=('decoder_bmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
+            #self._decoder_wmatrix.append(tf.Variable(tf.random_uniform([layers[i], layers[i-1]], minval=-0.5, maxval=0.5, dtype=tf.float32), name=('decoder_wmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
+            #self._decoder_bmatrix.append(tf.Variable(tf.random_uniform([layers[i], 1], minval=-0.5, maxval=0.5, dtype=tf.float32), name=('decoder_bmatrix_' + str(i-(int)(len(layers)/2)-1)) ))
             self._decoder_wmatrix.append(tf.Variable(tf.truncated_normal([layers[i], layers[i - 1]], stddev=0.0499), name=('decoder_wmatrix_' + str(i - (int)(len(layers) / 2) - 1))))
             self._decoder_bmatrix.append(tf.Variable(tf.truncated_normal([layers[i], 1], stddev=0.0499), name=('decoder_bmatrix_' + str(i - (int)(len(layers) / 2) - 1))))
 
@@ -68,17 +68,18 @@ class AutoEncoder:
             self._cost = tf.reduce_mean(self._cost, axis=0) # Scalar Value. Sum is over the features
             '''
             # Cross entropy cost function
-            # cost = mean(-sum(x * log(output) + (1 - x) * log(1 - output), axis=1), axis=0)
+            # cost = mean(-mean(x * log(output) + (1 - x) * log(1 - output), axis=1), axis=0)
             one = tf.constant(1.0, dtype=tf.float32)
-            self._cost = tf.mul(self._nn_inp_holder, tf.log(self._y_hat))
-            self._cost = tf.add(self._cost, tf.mul(tf.sub(one, self._nn_inp_holder), tf.log(tf.sub(one, self._y_hat)))) # [d_x, z], where z can be anything.
-            self._cost = -tf.reduce_sum(self._cost, axis=1)  # [d_x, 1]. Sum is over the samples
+            self._cost = tf.multiply(self._nn_inp_holder, tf.log(self._y_hat))
+            self._cost = tf.add(self._cost, tf.multiply(tf.subtract(one, self._nn_inp_holder), tf.log(tf.subtract(one, self._y_hat)))) # [d_x, z], where z can be anything.
+            self._cost = -tf.reduce_mean(self._cost, axis=1)  # [d_x, 1]. Sum is over the samples
             self._cost = tf.reduce_mean(self._cost, axis=0)  # Scalar Value. Sum is over the features
         tf.summary.scalar('batch_cost', self._cost, collections=[self._summary_keys[0]])
         tf.summary.scalar('test_cost', self._cost, collections=[self._summary_keys[2]])
 
         # Defining NN's optimizing algorithm
-        optimizer = tf.train.AdadeltaOptimizer()
+        self._learning_rate = tf.placeholder(tf.float32, shape=[])
+        optimizer = tf.train.GradientDescentOptimizer(self._learning_rate)
         gradients = optimizer.compute_gradients(self._cost)
         with tf.name_scope('gradients', values=[gradients]):
             self._minimize_op = optimizer.apply_gradients(gradients)
@@ -162,7 +163,15 @@ class AutoEncoder:
             for cur_batch in range(total_batches):
                 batch_x = self._dataset.next_batch(batch_size)
                 batch_x = numpy.transpose(batch_x)  # result is [d_x, batch_size]
-                c, _ = self._sess.run([self._cost, self._minimize_op], feed_dict={self._nn_inp_holder: batch_x})
+                if cur_epoch<=1500:
+                    lr = 0.1
+                elif cur_batch>1500 and cur_batch<=2300:
+                    lr = 0.03
+                elif cur_batch>2300 and cur_batch<=2800:
+                    lr = 0.01
+                else:
+                    lr = 0.003
+                c, _ = self._sess.run([self._cost, self._minimize_op], feed_dict={self._nn_inp_holder: batch_x, self._learning_rate: lr})
                 batch_cost_list.append(c)
 
                 # Do not record the results of all the batches. Just a few of them.
@@ -190,10 +199,10 @@ class AutoEncoder:
         print('Initializing Testing of NN...')
 
         # Define image summaries for 10 random sample images, each being from a different class.
-        test_images = numpy.transpose(self._dataset.test)
+        test_samples = numpy.transpose(self._dataset.test)
 
         # Calculating cost and the rest summaries
-        c, test_summ = self._sess.run([self._cost, self._test_summaries], feed_dict={self._nn_inp_holder: test_images})
+        c, test_summ = self._sess.run([self._cost, self._test_summaries], feed_dict={self._nn_inp_holder: test_samples})
         self._writer.add_summary(test_summ)
         self._writer.flush()
 
